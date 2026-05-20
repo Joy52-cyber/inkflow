@@ -18,6 +18,9 @@ public/pages/uploads/
 dist/
 *.log
 
+# local-only secret docs (contain keys) — never commit
+railway-variables.txt
+
 # os
 .DS_Store
 Thumbs.db
