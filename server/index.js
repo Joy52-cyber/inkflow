@@ -41,6 +41,22 @@ app.post("/api/auth/login", wrap(async (req, res) => {
 
 app.get("/api/me", requireAuth, (req, res) => res.json({ creator: req.creator }));
 
+// Diagnostics: reports which config the running server actually sees (booleans
+// only, never secret values). Safe to expose; handy for verifying a deploy.
+app.get("/api/health", (_req, res) => res.json({
+  ok: true,
+  model: DEFAULT_MODEL,
+  storage: storage.STORAGE_DRIVER,
+  env: {
+    anthropic: !!process.env.ANTHROPIC_API_KEY,
+    gemini: !!process.env.GEMINI_API_KEY,
+    database: !!process.env.DATABASE_URL,
+    jwt: !!process.env.JWT_SECRET,
+    s3_endpoint: !!process.env.S3_ENDPOINT,
+    s3_bucket: process.env.S3_BUCKET || null,
+  },
+}));
+
 // --- Localize: creates a draft chapter owned by the logged-in creator ---
 app.post("/api/localize", requireAuth, upload.array("pages", 20), wrap(async (req, res) => {
   const files = req.files || [];
