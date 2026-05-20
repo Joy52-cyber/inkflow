@@ -1,5 +1,9 @@
 # dependencies
 node_modules/
+# Lockfile is generated per-platform; committing the Windows one breaks Linux
+# (Railway) builds via the npm optional-deps bug (npm/cli#4828). Let each env
+# resolve native binaries (sharp, @tailwindcss/oxide, rollup) with a fresh install.
+package-lock.json
 
 # secrets — NEVER commit (holds Anthropic/Gemini API keys + DATABASE_URL)
 .env
