@@ -9,6 +9,8 @@ import UploadReader from "./pages/UploadReader.jsx";
 import Login from "./pages/Login.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Admin from "./pages/Admin.jsx";
+import Search from "./pages/Search.jsx";
+import Creator from "./pages/Creator.jsx";
 
 export default function App() {
   const { pathname } = useLocation();
@@ -26,6 +28,8 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/search" element={<Search />} />
+        <Route path="/creator/:id" element={<Creator />} />
       </Routes>
     </>
   );

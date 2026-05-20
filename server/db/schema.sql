@@ -43,7 +43,13 @@ CREATE TABLE IF NOT EXISTS pages (
   lines       JSONB NOT NULL DEFAULT '[]'           -- localization: original/translation/type
 );
 
+-- Phase 3: trending signal. ALTER (not in CREATE) so re-running migrate adds it.
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS views INT NOT NULL DEFAULT 0;
+
 CREATE INDEX IF NOT EXISTS idx_series_creator   ON series(creator_id);
 CREATE INDEX IF NOT EXISTS idx_chapters_series  ON chapters(series_id);
 CREATE INDEX IF NOT EXISTS idx_chapters_state   ON chapters(status, review_status);
+CREATE INDEX IF NOT EXISTS idx_chapters_views   ON chapters(views DESC);
 CREATE INDEX IF NOT EXISTS idx_pages_chapter    ON pages(chapter_id, idx);
+-- Case-insensitive title search.
+CREATE INDEX IF NOT EXISTS idx_series_title_lc  ON series(lower(title));

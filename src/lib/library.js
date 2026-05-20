@@ -16,6 +16,11 @@ export const discardChapter = (id) => api(`/chapters/${id}`, { method: "DELETE",
 export const listLibrary = () => api("/library").catch(() => []);
 export const listMine = () => api("/mine", { auth: true });
 
+// Phase 3: discovery
+export const listTrending = () => api("/trending").catch(() => []);
+export const searchWorks = (q) => api(`/search?q=${encodeURIComponent(q)}`).catch(() => []);
+export const getCreator = (id) => api(`/creators/${id}`);
+
 export const adminQueue = () => api("/admin/queue", { auth: true });
 export const reviewChapter = (id, decision, note = "") =>
   api(`/admin/chapters/${id}/review`, { method: "POST", body: { decision, note }, auth: true });

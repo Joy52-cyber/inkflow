@@ -43,7 +43,7 @@ export async function createChapter({ creatorId, title, genre, chapterId, pagesD
 
 const CHAPTER_SELECT = `
   SELECT c.id, c.title, c.number, c.status, c.review_status, c.review_note,
-         c.created_at, c.published_at,
+         c.views, c.created_at, c.published_at,
          s.id AS series_id, s.title AS series_title, s.genre, s.accent,
          s.creator_id, cr.display_name AS creator_name
   FROM chapters c
@@ -115,4 +115,57 @@ export async function reviewChapter(id, decision, note = "") {
     `UPDATE chapters SET review_status=$2, review_note=$3 WHERE id=$1 RETURNING id, review_status`,
     [id, review_status, note]
   );
+}
+
+// --- Phase 3: discovery ---
+
+// Count a read (only matters for live chapters). Fire-and-forget from the route.
+export async function incrementViews(id) {
+  await query(
+    `UPDATE chapters SET views = views + 1
+     WHERE id=$1 AND status='published' AND review_status='approved'`,
+    [id]
+  );
+}
+
+// Most-viewed live chapters.
+export async function trending(limit = 12) {
+  const { rows } = await query(
+    `${CHAPTER_SELECT}
+     WHERE c.status='published' AND c.review_status='approved'
+     ORDER BY c.views DESC, c.published_at DESC NULLS LAST
+     LIMIT $1`,
+    [limit]
+  );
+  return rows;
+}
+
+// Search live works by series title or creator name (case-insensitive).
+export async function search(q, limit = 40) {
+  const term = `%${(q || "").trim()}%`;
+  const { rows } = await query(
+    `${CHAPTER_SELECT}
+     WHERE c.status='published' AND c.review_status='approved'
+       AND (s.title ILIKE $1 OR cr.display_name ILIKE $1)
+     ORDER BY c.views DESC, c.published_at DESC NULLS LAST
+     LIMIT $2`,
+    [term, limit]
+  );
+  return rows;
+}
+
+// Public creator profile + their live works.
+export async function getCreatorProfile(id) {
+  const creator = await one(
+    `SELECT id, display_name, created_at FROM creators WHERE id=$1`,
+    [id]
+  );
+  if (!creator) return null;
+  const { rows } = await query(
+    `${CHAPTER_SELECT}
+     WHERE s.creator_id=$1 AND c.status='published' AND c.review_status='approved'
+     ORDER BY c.published_at DESC NULLS LAST`,
+    [id]
+  );
+  return { creator, works: rows };
 }

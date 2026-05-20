@@ -18,9 +18,12 @@ export default function UploadReader() {
   return (
     <div className="min-h-screen bg-neutral-950">
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-neutral-950/90 px-4 py-2.5 backdrop-blur">
-        <Link to="/" className="truncate text-sm font-semibold hover:text-cyan-400">
-          ‹ {work.series_title || work.title} <span className="text-neutral-500">/ localized</span>
-        </Link>
+        <div className="truncate text-sm">
+          <Link to="/" className="font-semibold hover:text-cyan-400">‹ {work.series_title || work.title}</Link>
+          {work.creator_id && (
+            <Link to={`/creator/${work.creator_id}`} className="ml-2 text-neutral-500 hover:text-cyan-400">by {work.creator_name}</Link>
+          )}
+        </div>
         <button onClick={() => setShowOriginal((v) => !v)}
           className="rounded-md px-2 py-1 text-xs ring-1 ring-white/15 hover:bg-white/10">
           {showOriginal ? "Hide source text" : "Show source text"}

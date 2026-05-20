@@ -2,9 +2,9 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { GENRES, mangaByGenre, getManga, getChapter } from "../data/catalog.js";
 import MangaCard from "../components/MangaCard.jsx";
-import Cover from "../components/Cover.jsx";
+import LibraryCard from "../components/LibraryCard.jsx";
 import { continueReading } from "../lib/progress.js";
-import { listLibrary } from "../lib/library.js";
+import { listLibrary, listTrending } from "../lib/library.js";
 
 function Rail({ title, to, items }) {
   return (
@@ -23,7 +23,11 @@ function Rail({ title, to, items }) {
 export default function Home() {
   const reading = continueReading();
   const [uploads, setUploads] = useState([]);
-  useEffect(() => { listLibrary().then(setUploads); }, []);
+  const [trend, setTrend] = useState([]);
+  useEffect(() => {
+    listLibrary().then(setUploads);
+    listTrending().then(setTrend);
+  }, []);
   return (
     <div className="mx-auto max-w-6xl py-6">
       <div className="mb-8 px-4">
@@ -54,16 +58,20 @@ export default function Home() {
         </section>
       )}
 
+      {trend.length > 0 && (
+        <section className="mb-9">
+          <h2 className="mb-3 px-4 text-lg font-bold">🔥 Trending</h2>
+          <div className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-1">
+            {trend.map((w) => <LibraryCard key={w.id} work={w} />)}
+          </div>
+        </section>
+      )}
+
       {uploads.length > 0 && (
         <section className="mb-9">
           <h2 className="mb-3 px-4 text-lg font-bold">✨ Localized by creators</h2>
           <div className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-1">
-            {uploads.map((u) => (
-              <Link key={u.id} to={`/u/${u.id}`} className="w-36 shrink-0">
-                <Cover manga={{ title: u.series_title, accent: u.accent, genres: [u.genre] }} />
-                <div className="mt-1.5 text-xs text-cyan-400">by {u.creator_name} · {u.pageCount ?? ""} pg</div>
-              </Link>
-            ))}
+            {uploads.map((u) => <LibraryCard key={u.id} work={u} />)}
           </div>
         </section>
       )}

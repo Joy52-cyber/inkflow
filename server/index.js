@@ -74,6 +74,7 @@ app.post("/api/localize", requireAuth, upload.array("pages", 20), wrap(async (re
 app.get("/api/chapters/:id", wrap(async (req, res) => {
   const ch = await lib.getChapter(req.params.id);
   if (!ch) return res.status(404).json({ error: "not found" });
+  lib.incrementViews(req.params.id).catch(() => {}); // count the read, don't block
   res.json(ch);
 }));
 
@@ -90,9 +91,16 @@ app.delete("/api/chapters/:id", requireAuth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// --- Browse ---
+// --- Browse / discovery ---
 app.get("/api/library", wrap(async (_req, res) => res.json(await lib.listPublic())));
 app.get("/api/mine", requireAuth, wrap(async (req, res) => res.json(await lib.listMine(req.creator.id))));
+app.get("/api/trending", wrap(async (_req, res) => res.json(await lib.trending())));
+app.get("/api/search", wrap(async (req, res) => res.json(await lib.search(req.query.q || ""))));
+app.get("/api/creators/:id", wrap(async (req, res) => {
+  const profile = await lib.getCreatorProfile(req.params.id);
+  if (!profile) return res.status(404).json({ error: "creator not found" });
+  res.json(profile);
+}));
 
 // --- Admin review ---
 app.get("/api/admin/queue", requireAuth, requireAdmin, wrap(async (_req, res) => res.json(await lib.adminQueue())));

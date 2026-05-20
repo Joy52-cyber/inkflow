@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { GENRES } from "../data/catalog.js";
 import { useAuth } from "../lib/AuthContext.jsx";
@@ -5,6 +6,12 @@ import { useAuth } from "../lib/AuthContext.jsx";
 export default function Header() {
   const { creator, logout } = useAuth();
   const nav = useNavigate();
+  const [q, setQ] = useState("");
+
+  function onSearch(e) {
+    e.preventDefault();
+    if (q.trim()) nav(`/search?q=${encodeURIComponent(q.trim())}`);
+  }
 
   return (
     <header className="sticky top-0 z-20 border-b border-white/10 bg-neutral-950/80 backdrop-blur">
@@ -12,7 +19,7 @@ export default function Header() {
         <Link to="/" className="text-lg font-black tracking-tight">
           <span className="text-cyan-400">Ink</span>flow
         </Link>
-        <nav className="flex items-center gap-1 text-sm">
+        <nav className="hidden items-center gap-1 text-sm sm:flex">
           {GENRES.map((g) => (
             <NavLink key={g.slug} to={`/genre/${g.slug}`}
               className={({ isActive }) =>
@@ -22,7 +29,12 @@ export default function Header() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2 text-sm">
+        <form onSubmit={onSearch} className="ml-2 max-w-xs flex-1">
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search titles, creators…"
+            className="w-full rounded-full bg-white/5 px-3.5 py-1.5 text-sm ring-1 ring-white/10 outline-none placeholder:text-neutral-500 focus:ring-cyan-400" />
+        </form>
+
+        <div className="flex items-center gap-2 text-sm">
           {creator?.role === "admin" && (
             <NavLink to="/admin" className="rounded-full px-3 py-1.5 text-neutral-400 hover:text-white">Review</NavLink>
           )}
