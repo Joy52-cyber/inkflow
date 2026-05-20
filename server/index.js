@@ -7,17 +7,12 @@
 import "dotenv/config";
 import express from "express";
 import multer from "multer";
-import { writeFile, mkdir, rm } from "node:fs/promises";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { localizePage } from "./localizer/vision.js";
 import { renderPage } from "./localizer/render.js";
 import { registerCreator, loginCreator, requireAuth, requireAdmin } from "./auth.js";
 import * as lib from "./library.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const UPLOADS_DIR = join(__dirname, "..", "public", "pages", "uploads");
+import * as storage from "./storage.js";
 
 const app = express();
 app.use(express.json());
@@ -65,16 +60,12 @@ app.post("/api/localize", requireAuth, upload.array("pages", 20), wrap(async (re
 
   // Generate the chapter id up front so page image paths are known before insert.
   const chapterId = randomUUID();
-  const pagesMeta = rendered.map((r, i) => ({
-    idx: i, image_path: `/pages/uploads/${chapterId}/p${i + 1}.png`, lines: r.lines,
-  }));
-  await lib.createChapter({ creatorId: req.creator.id, title, genre, chapterId, pagesData: pagesMeta });
-
-  const outDir = join(UPLOADS_DIR, chapterId);
-  await mkdir(outDir, { recursive: true });
+  const pagesMeta = [];
   for (let i = 0; i < rendered.length; i++) {
-    await writeFile(join(outDir, `p${i + 1}.png`), rendered[i].png);
+    const url = await storage.putPage(chapterId, i, rendered[i].png);
+    pagesMeta.push({ idx: i, image_path: url, lines: rendered[i].lines });
   }
+  await lib.createChapter({ creatorId: req.creator.id, title, genre, chapterId, pagesData: pagesMeta });
 
   res.json(await lib.getChapter(chapterId));
 }));
@@ -95,7 +86,7 @@ app.post("/api/chapters/:id/publish", requireAuth, wrap(async (req, res) => {
 app.delete("/api/chapters/:id", requireAuth, wrap(async (req, res) => {
   const ok = await lib.deleteChapter(req.params.id, req.creator.id);
   if (!ok) return res.status(404).json({ error: "not found or not yours" });
-  await rm(join(UPLOADS_DIR, req.params.id), { recursive: true, force: true }).catch(() => {});
+  await storage.deleteChapter(req.params.id);
   res.json({ ok: true });
 }));
 
@@ -113,4 +104,6 @@ app.post("/api/admin/chapters/:id/review", requireAuth, requireAdmin, wrap(async
 }));
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Inkflow API on http://localhost:${PORT}  (model: ${DEFAULT_MODEL})`));
+app.listen(PORT, () =>
+  console.log(`Inkflow API on http://localhost:${PORT}  (model: ${DEFAULT_MODEL}, storage: ${storage.STORAGE_DRIVER})`)
+);
