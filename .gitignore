@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# secrets — NEVER commit (holds Anthropic/Gemini API keys + DATABASE_URL)
+.env
+.env.*
+!.env.example
+
+# runtime / user-generated data
+server/uploads.json
+public/pages/uploads/
+
+# build output
+dist/
+*.log
+
+# os
+.DS_Store
+Thumbs.db
