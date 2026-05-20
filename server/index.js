@@ -8,6 +8,9 @@ import "dotenv/config";
 import express from "express";
 import multer from "multer";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { localizePage } from "./localizer/vision.js";
 import { renderPage } from "./localizer/render.js";
 import { registerCreator, loginCreator, requireAuth, requireAdmin } from "./auth.js";
@@ -111,7 +114,23 @@ app.post("/api/admin/chapters/:id/review", requireAuth, requireAdmin, wrap(async
   res.json(row);
 }));
 
+// --- Production: serve sample assets + the built SPA from this one service ---
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, "..");
+const PUBLIC_DIR = join(ROOT, "public");
+const DIST_DIR = join(ROOT, "dist");
+
+app.use(express.static(PUBLIC_DIR)); // /pages/cooking|action sample images, etc.
+if (existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  // SPA fallback for client-side routes (anything that isn't an API call or a real file).
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/")) return next();
+    res.sendFile(join(DIST_DIR, "index.html"));
+  });
+}
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () =>
-  console.log(`Inkflow API on http://localhost:${PORT}  (model: ${DEFAULT_MODEL}, storage: ${storage.STORAGE_DRIVER})`)
+  console.log(`Inkflow on :${PORT}  (model: ${DEFAULT_MODEL}, storage: ${storage.STORAGE_DRIVER}, spa: ${existsSync(DIST_DIR)})`)
 );
