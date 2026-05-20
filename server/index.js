@@ -1,109 +1,116 @@
-// Inkflow localization backend (Phase 1).
-// POST /api/localize  — JP/KO page(s) in -> localized English page(s) saved as a chapter.
-// GET  /api/uploads   — list localized works.  GET /api/uploads/:id — one work.
+// Inkflow backend (Phase 2): Postgres-backed, creator accounts + admin review.
+//   Auth:    POST /api/auth/register | /api/auth/login,  GET /api/me
+//   Create:  POST /api/localize (auth) -> draft chapter (series + pages) in DB
+//   Chapter: GET /api/chapters/:id,  POST /api/chapters/:id/publish (auth),  DELETE (auth)
+//   Browse:  GET /api/library (published + approved),  GET /api/mine (auth)
+//   Admin:   GET /api/admin/queue (admin),  POST /api/admin/chapters/:id/review (admin)
 import "dotenv/config";
 import express from "express";
 import multer from "multer";
-import { readFile, writeFile, mkdir, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { writeFile, mkdir, rm } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { localizePage } from "./localizer/vision.js";
 import { renderPage } from "./localizer/render.js";
+import { registerCreator, loginCreator, requireAuth, requireAdmin } from "./auth.js";
+import * as lib from "./library.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, "..");
-const UPLOADS_DIR = join(ROOT, "public", "pages", "uploads");
-const DB_PATH = join(__dirname, "uploads.json");
+const UPLOADS_DIR = join(__dirname, "..", "public", "pages", "uploads");
 
 const app = express();
+app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 const MIME_OK = new Set(["image/jpeg", "image/png", "image/webp"]);
-
-// Pick provider: Claude works today (Gemini key is expired). Override with ?model=gemini.
 const DEFAULT_MODEL = process.env.LOCALIZE_MODEL || "claude";
 
-async function loadDb() {
-  if (!existsSync(DB_PATH)) return [];
-  try { return JSON.parse(await readFile(DB_PATH, "utf8")); } catch { return []; }
-}
-async function saveDb(rows) { await writeFile(DB_PATH, JSON.stringify(rows, null, 2)); }
-
-const ACCENTS = { cooking: "#f59e0b", action: "#06b6d4" };
-
-// Home/browse only shows published works; drafts are reachable by id (for preview).
-app.get("/api/uploads", async (_req, res) => res.json((await loadDb()).filter((r) => r.published)));
-app.get("/api/uploads/:id", async (req, res) => {
-  const row = (await loadDb()).find((r) => r.id === req.params.id);
-  if (!row) return res.status(404).json({ error: "not found" });
-  res.json(row);
+const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
+  console.error(`${req.method} ${req.path}:`, e.message);
+  res.status(e.status || 500).json({ error: e.message });
 });
 
-// Promote a draft to published.
-app.post("/api/uploads/:id/publish", async (req, res) => {
-  const rows = await loadDb();
-  const row = rows.find((r) => r.id === req.params.id);
-  if (!row) return res.status(404).json({ error: "not found" });
-  row.published = true;
-  row.status = "Published";
-  row.publishedAt = Date.now();
-  await saveDb(rows);
-  res.json(row);
-});
+// --- Auth ---
+app.post("/api/auth/register", wrap(async (req, res) => {
+  const { email, displayName, password } = req.body;
+  res.json(await registerCreator({ email, displayName, password }));
+}));
 
-// Discard a draft (or remove a work) and its page images.
-app.delete("/api/uploads/:id", async (req, res) => {
-  const rows = await loadDb();
-  const idx = rows.findIndex((r) => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: "not found" });
-  rows.splice(idx, 1);
-  await saveDb(rows);
+app.post("/api/auth/login", wrap(async (req, res) => {
+  const { email, password } = req.body;
+  res.json(await loginCreator({ email, password }));
+}));
+
+app.get("/api/me", requireAuth, (req, res) => res.json({ creator: req.creator }));
+
+// --- Localize: creates a draft chapter owned by the logged-in creator ---
+app.post("/api/localize", requireAuth, upload.array("pages", 20), wrap(async (req, res) => {
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: "No pages uploaded." });
+  for (const f of files) if (!MIME_OK.has(f.mimetype)) return res.status(400).json({ error: `Unsupported type: ${f.mimetype}` });
+
+  const title = (req.body.title || "Untitled").trim().slice(0, 80);
+  const genre = req.body.genre === "cooking" ? "cooking" : "action";
+  const model = req.body.model === "gemini" ? "gemini" : DEFAULT_MODEL;
+
+  // Localize all pages first (in memory), then persist + write files keyed by the new chapter id.
+  const rendered = [];
+  for (const f of files) {
+    const result = await localizePage({
+      model, base64: f.buffer.toString("base64"), mimeType: f.mimetype,
+      promptOpts: { targetLang: "en" },
+    });
+    rendered.push({ png: await renderPage(f.buffer, result.regions), lines: result.regions });
+  }
+
+  // Generate the chapter id up front so page image paths are known before insert.
+  const chapterId = randomUUID();
+  const pagesMeta = rendered.map((r, i) => ({
+    idx: i, image_path: `/pages/uploads/${chapterId}/p${i + 1}.png`, lines: r.lines,
+  }));
+  await lib.createChapter({ creatorId: req.creator.id, title, genre, chapterId, pagesData: pagesMeta });
+
+  const outDir = join(UPLOADS_DIR, chapterId);
+  await mkdir(outDir, { recursive: true });
+  for (let i = 0; i < rendered.length; i++) {
+    await writeFile(join(outDir, `p${i + 1}.png`), rendered[i].png);
+  }
+
+  res.json(await lib.getChapter(chapterId));
+}));
+
+// --- Chapter read / publish / delete ---
+app.get("/api/chapters/:id", wrap(async (req, res) => {
+  const ch = await lib.getChapter(req.params.id);
+  if (!ch) return res.status(404).json({ error: "not found" });
+  res.json(ch);
+}));
+
+app.post("/api/chapters/:id/publish", requireAuth, wrap(async (req, res) => {
+  const ok = await lib.publishChapter(req.params.id, req.creator.id);
+  if (!ok) return res.status(404).json({ error: "not found or not yours" });
+  res.json(await lib.getChapter(req.params.id));
+}));
+
+app.delete("/api/chapters/:id", requireAuth, wrap(async (req, res) => {
+  const ok = await lib.deleteChapter(req.params.id, req.creator.id);
+  if (!ok) return res.status(404).json({ error: "not found or not yours" });
   await rm(join(UPLOADS_DIR, req.params.id), { recursive: true, force: true }).catch(() => {});
   res.json({ ok: true });
-});
+}));
 
-app.post("/api/localize", upload.array("pages", 20), async (req, res) => {
-  try {
-    const files = req.files || [];
-    if (!files.length) return res.status(400).json({ error: "No pages uploaded." });
-    for (const f of files) if (!MIME_OK.has(f.mimetype)) return res.status(400).json({ error: `Unsupported type: ${f.mimetype}` });
+// --- Browse ---
+app.get("/api/library", wrap(async (_req, res) => res.json(await lib.listPublic())));
+app.get("/api/mine", requireAuth, wrap(async (req, res) => res.json(await lib.listMine(req.creator.id))));
 
-    const title = (req.body.title || "Untitled").trim().slice(0, 80);
-    const genre = ACCENTS[req.body.genre] ? req.body.genre : "action";
-    const model = req.body.model === "gemini" ? "gemini" : DEFAULT_MODEL;
-
-    const id = `u_${Date.now().toString(36)}`;
-    const outDir = join(UPLOADS_DIR, id);
-    await mkdir(outDir, { recursive: true });
-
-    const pages = [];
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      const result = await localizePage({
-        model,
-        base64: f.buffer.toString("base64"),
-        mimeType: f.mimetype,
-        promptOpts: { targetLang: "en" },
-      });
-      const png = await renderPage(f.buffer, result.regions);
-      await writeFile(join(outDir, `p${i + 1}.png`), png);
-      pages.push({ src: `/pages/uploads/${id}/p${i + 1}.png`, lines: result.regions });
-    }
-
-    const row = {
-      id, title, genre, accent: ACCENTS[genre],
-      author: "You", status: "Draft", published: false, createdAt: Date.now(),
-      pageCount: pages.length, pages,
-    };
-    const rows = await loadDb();
-    rows.unshift(row);
-    await saveDb(rows);
-    res.json(row);
-  } catch (e) {
-    console.error("localize error:", e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
+// --- Admin review ---
+app.get("/api/admin/queue", requireAuth, requireAdmin, wrap(async (_req, res) => res.json(await lib.adminQueue())));
+app.post("/api/admin/chapters/:id/review", requireAuth, requireAdmin, wrap(async (req, res) => {
+  const { decision, note } = req.body; // 'approve' | 'reject'
+  const row = await lib.reviewChapter(req.params.id, decision, note || "");
+  if (!row) return res.status(404).json({ error: "not found" });
+  res.json(row);
+}));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Inkflow API on http://localhost:${PORT}  (model: ${DEFAULT_MODEL})`));

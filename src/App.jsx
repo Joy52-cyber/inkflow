@@ -6,6 +6,9 @@ import MangaDetail from "./pages/MangaDetail.jsx";
 import Reader from "./pages/Reader.jsx";
 import Upload from "./pages/Upload.jsx";
 import UploadReader from "./pages/UploadReader.jsx";
+import Login from "./pages/Login.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
+import Admin from "./pages/Admin.jsx";
 
 export default function App() {
   const { pathname } = useLocation();
@@ -20,6 +23,9 @@ export default function App() {
         <Route path="/read/:mangaId/:chapterId" element={<Reader />} />
         <Route path="/upload" element={<Upload />} />
         <Route path="/u/:id" element={<UploadReader />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/admin" element={<Admin />} />
       </Routes>
     </>
   );

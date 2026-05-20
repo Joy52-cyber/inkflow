@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { GENRES } from "../data/catalog.js";
-import { localize, publishUpload, discardUpload } from "../lib/uploads.js";
+import { localize, publishChapter, discardChapter } from "../lib/library.js";
+import { useAuth } from "../lib/AuthContext.jsx";
 
 export default function Upload() {
   const nav = useNavigate();
+  const { creator } = useAuth();
+  useEffect(() => { if (!creator) nav("/login?next=/upload"); }, [creator]);
   const [files, setFiles] = useState([]);
   const [title, setTitle] = useState("");
   const [genre, setGenre] = useState("action");
@@ -30,8 +33,8 @@ export default function Upload() {
   async function onPublish() {
     setBusy(true);
     try {
-      await publishUpload(draft.id);
-      nav(`/u/${draft.id}`);
+      await publishChapter(draft.id);
+      nav("/dashboard");
     } catch (err) {
       setError(err.message);
       setBusy(false);
@@ -39,7 +42,7 @@ export default function Upload() {
   }
 
   async function onDiscard() {
-    if (draft) await discardUpload(draft.id);
+    if (draft) await discardChapter(draft.id).catch(() => {});
     setDraft(null);
   }
 
@@ -52,13 +55,14 @@ export default function Upload() {
           <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-xs text-amber-300">Draft</span>
         </div>
         <p className="mt-1 text-sm text-neutral-400">
-          Review the localized {draft.pageCount}-page chapter. Publish to add it to Inkflow, or discard and try again.
+          Review the localized {draft.pageCount}-page chapter. Publishing submits it for moderation;
+          once approved it goes live in Inkflow. Or discard and try again.
         </p>
 
         <div className="mt-6 flex gap-2">
           <button disabled={busy} onClick={onPublish}
             className="rounded-lg bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-black hover:bg-cyan-400 disabled:opacity-50">
-            {busy ? "Publishing…" : "Publish chapter"}
+            {busy ? "Submitting…" : "Publish (submit for review)"}
           </button>
           <button disabled={busy} onClick={onDiscard}
             className="rounded-lg px-4 py-2.5 text-sm font-semibold ring-1 ring-white/15 hover:bg-white/10 disabled:opacity-50">

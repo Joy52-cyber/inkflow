@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { getUpload } from "../lib/uploads.js";
+import { getChapter } from "../lib/library.js";
 
 export default function UploadReader() {
   const { id } = useParams();
@@ -9,7 +9,7 @@ export default function UploadReader() {
   const [showOriginal, setShowOriginal] = useState(false);
 
   useEffect(() => {
-    getUpload(id).then(setWork).catch((e) => setErr(e.message));
+    getChapter(id).then(setWork).catch((e) => setErr(e.message));
   }, [id]);
 
   if (err) return <div className="p-8">Couldn't load this work. <Link className="text-cyan-400" to="/">Home</Link></div>;
@@ -19,7 +19,7 @@ export default function UploadReader() {
     <div className="min-h-screen bg-neutral-950">
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-neutral-950/90 px-4 py-2.5 backdrop-blur">
         <Link to="/" className="truncate text-sm font-semibold hover:text-cyan-400">
-          ‹ {work.title} <span className="text-neutral-500">/ localized</span>
+          ‹ {work.series_title || work.title} <span className="text-neutral-500">/ localized</span>
         </Link>
         <button onClick={() => setShowOriginal((v) => !v)}
           className="rounded-md px-2 py-1 text-xs ring-1 ring-white/15 hover:bg-white/10">

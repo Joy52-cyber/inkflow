@@ -4,7 +4,7 @@ import { GENRES, mangaByGenre, getManga, getChapter } from "../data/catalog.js";
 import MangaCard from "../components/MangaCard.jsx";
 import Cover from "../components/Cover.jsx";
 import { continueReading } from "../lib/progress.js";
-import { listUploads } from "../lib/uploads.js";
+import { listLibrary } from "../lib/library.js";
 
 function Rail({ title, to, items }) {
   return (
@@ -23,7 +23,7 @@ function Rail({ title, to, items }) {
 export default function Home() {
   const reading = continueReading();
   const [uploads, setUploads] = useState([]);
-  useEffect(() => { listUploads().then(setUploads); }, []);
+  useEffect(() => { listLibrary().then(setUploads); }, []);
   return (
     <div className="mx-auto max-w-6xl py-6">
       <div className="mb-8 px-4">
@@ -60,8 +60,8 @@ export default function Home() {
           <div className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-1">
             {uploads.map((u) => (
               <Link key={u.id} to={`/u/${u.id}`} className="w-36 shrink-0">
-                <Cover manga={{ title: u.title, accent: u.accent, genres: [u.genre] }} />
-                <div className="mt-1.5 text-xs text-cyan-400">{u.pageCount} pg · localized</div>
+                <Cover manga={{ title: u.series_title, accent: u.accent, genres: [u.genre] }} />
+                <div className="mt-1.5 text-xs text-cyan-400">by {u.creator_name} · {u.pageCount ?? ""} pg</div>
               </Link>
             ))}
           </div>

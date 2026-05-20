@@ -1,0 +1,118 @@
+// Data access for creator works. A chapter has two independent states:
+//   status: draft | published         (creator controls)
+//   review_status: pending | approved | rejected   (admin controls)
+// Public visibility requires status='published' AND review_status='approved'.
+import { pool, one, query } from "./db/pool.js";
+
+const ACCENTS = { cooking: "#f59e0b", action: "#06b6d4" };
+
+// Create series + chapter (draft/pending) + pages in one transaction.
+// `localizedPages` = [{ buffer-written already? no }] — caller writes images, passes paths.
+export async function createChapter({ creatorId, title, genre, chapterId, pagesData }) {
+  const g = ACCENTS[genre] ? genre : "action";
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const series = (
+      await client.query(
+        `INSERT INTO series (creator_id, title, genre, accent) VALUES ($1,$2,$3,$4) RETURNING id`,
+        [creatorId, title, g, ACCENTS[g]]
+      )
+    ).rows[0];
+    const chapter = (
+      await client.query(
+        `INSERT INTO chapters (id, series_id, title, number) VALUES ($1,$2,$3,1) RETURNING id`,
+        [chapterId, series.id, title]
+      )
+    ).rows[0];
+    for (const p of pagesData) {
+      await client.query(
+        `INSERT INTO pages (chapter_id, idx, image_path, lines) VALUES ($1,$2,$3,$4)`,
+        [chapter.id, p.idx, p.image_path, JSON.stringify(p.lines)]
+      );
+    }
+    await client.query("COMMIT");
+    return chapter.id;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+const CHAPTER_SELECT = `
+  SELECT c.id, c.title, c.number, c.status, c.review_status, c.review_note,
+         c.created_at, c.published_at,
+         s.id AS series_id, s.title AS series_title, s.genre, s.accent,
+         s.creator_id, cr.display_name AS creator_name
+  FROM chapters c
+  JOIN series s ON s.id = c.series_id
+  JOIN creators cr ON cr.id = s.creator_id`;
+
+async function withPages(chapter) {
+  if (!chapter) return null;
+  const { rows } = await query(
+    "SELECT idx, image_path AS src, lines FROM pages WHERE chapter_id=$1 ORDER BY idx",
+    [chapter.id]
+  );
+  return { ...chapter, pageCount: rows.length, pages: rows };
+}
+
+export async function getChapter(id) {
+  return withPages(await one(`${CHAPTER_SELECT} WHERE c.id=$1`, [id]));
+}
+
+export async function publishChapter(id, creatorId) {
+  return one(
+    `UPDATE chapters c SET status='published', published_at=now()
+     FROM series s WHERE c.series_id=s.id AND c.id=$1 AND s.creator_id=$2
+     RETURNING c.id`,
+    [id, creatorId]
+  );
+}
+
+export async function deleteChapter(id, creatorId) {
+  return one(
+    `DELETE FROM chapters c USING series s
+     WHERE c.series_id=s.id AND c.id=$1 AND s.creator_id=$2 RETURNING c.id`,
+    [id, creatorId]
+  );
+}
+
+// Public library: only published + approved.
+export async function listPublic() {
+  const { rows } = await query(
+    `${CHAPTER_SELECT}
+     WHERE c.status='published' AND c.review_status='approved'
+     ORDER BY c.published_at DESC NULLS LAST, c.created_at DESC`
+  );
+  return rows;
+}
+
+// A creator's own works, any state.
+export async function listMine(creatorId) {
+  const { rows } = await query(
+    `${CHAPTER_SELECT} WHERE s.creator_id=$1 ORDER BY c.created_at DESC`,
+    [creatorId]
+  );
+  return rows;
+}
+
+// Admin moderation queue: submitted (published) but not yet decided.
+export async function adminQueue() {
+  const { rows } = await query(
+    `${CHAPTER_SELECT}
+     WHERE c.status='published' AND c.review_status='pending'
+     ORDER BY c.published_at ASC`
+  );
+  return rows;
+}
+
+export async function reviewChapter(id, decision, note = "") {
+  const review_status = decision === "approve" ? "approved" : "rejected";
+  return one(
+    `UPDATE chapters SET review_status=$2, review_note=$3 WHERE id=$1 RETURNING id, review_status`,
+    [id, review_status, note]
+  );
+}
