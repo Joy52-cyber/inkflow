@@ -45,7 +45,8 @@ const CHAPTER_SELECT = `
   SELECT c.id, c.title, c.number, c.status, c.review_status, c.review_note,
          c.views, c.created_at, c.published_at,
          s.id AS series_id, s.title AS series_title, s.genre, s.accent,
-         s.creator_id, cr.display_name AS creator_name
+         s.creator_id, cr.display_name AS creator_name,
+         (cr.email LIKE '%@inkflow.demo') AS demo
   FROM chapters c
   JOIN series s ON s.id = c.series_id
   JOIN creators cr ON cr.id = s.creator_id`;
