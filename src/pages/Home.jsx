@@ -28,14 +28,24 @@ export default function Home() {
     listLibrary().then(setUploads);
     listTrending().then(setTrend);
   }, []);
+  const sample = trend[0] || uploads[0];
+  const demoLink = sample ? `/u/${sample.id}` : "/genre/action";
   return (
     <div className="mx-auto max-w-6xl py-6">
       <div className="mb-8 px-4">
-        <div className="rounded-2xl bg-gradient-to-br from-cyan-500/15 via-fuchsia-500/10 to-amber-500/10 p-6 ring-1 ring-white/10">
-          <h1 className="text-2xl font-black sm:text-3xl">Read manga in English.</h1>
-          <p className="mt-1 max-w-lg text-sm text-neutral-300">
-            Localized, vertical-scroll reading. Browse by genre, pick up where you left off.
+        <div className="rounded-2xl bg-gradient-to-br from-cyan-500/15 via-fuchsia-500/10 to-amber-500/10 p-6 ring-1 ring-white/10 sm:p-8">
+          <h1 className="text-2xl font-black sm:text-3xl">Localize manga chapters with AI.</h1>
+          <p className="mt-2 max-w-xl text-sm text-neutral-300 sm:text-base">
+            Upload Japanese or Korean pages and publish naturally localized English chapters in minutes.
           </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link to="/upload" className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black hover:bg-cyan-400">
+              Try localization
+            </Link>
+            <Link to={demoLink} className="rounded-lg px-4 py-2 text-sm font-semibold ring-1 ring-white/15 hover:bg-white/10">
+              View a demo
+            </Link>
+          </div>
         </div>
       </div>
 
