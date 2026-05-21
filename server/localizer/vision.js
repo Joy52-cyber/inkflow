@@ -28,8 +28,8 @@ function parseRegions(raw) {
 }
 
 async function viaGemini({ base64, mimeType, promptOpts }) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY not set in .env");
+  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY (or GOOGLE_API_KEY) not set");
   const genAI = new GoogleGenerativeAI(key);
   const model = genAI.getGenerativeModel({
     model: GEMINI_MODEL,

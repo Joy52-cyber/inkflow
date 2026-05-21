@@ -21,7 +21,11 @@ const app = express();
 app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 const MIME_OK = new Set(["image/jpeg", "image/png", "image/webp"]);
-const DEFAULT_MODEL = process.env.LOCALIZE_MODEL || "claude";
+// Pick the provider from LOCALIZE_MODEL, else auto-select by which key exists.
+const HAS_GEMINI = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+const DEFAULT_MODEL =
+  process.env.LOCALIZE_MODEL ||
+  (process.env.ANTHROPIC_API_KEY ? "claude" : HAS_GEMINI ? "gemini" : "claude");
 
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   console.error(`${req.method} ${req.path}:`, e.message);
@@ -49,7 +53,7 @@ app.get("/api/health", (_req, res) => res.json({
   storage: storage.STORAGE_DRIVER,
   env: {
     anthropic: !!process.env.ANTHROPIC_API_KEY,
-    gemini: !!process.env.GEMINI_API_KEY,
+    gemini: !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
     database: !!process.env.DATABASE_URL,
     jwt: !!process.env.JWT_SECRET,
     s3_endpoint: !!process.env.S3_ENDPOINT,
