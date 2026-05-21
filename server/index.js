@@ -21,11 +21,20 @@ const app = express();
 app.use(express.json());
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 const MIME_OK = new Set(["image/jpeg", "image/png", "image/webp"]);
-// Pick the provider from LOCALIZE_MODEL, else auto-select by which key exists.
-const HAS_GEMINI = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
-const DEFAULT_MODEL =
-  process.env.LOCALIZE_MODEL ||
-  (process.env.ANTHROPIC_API_KEY ? "claude" : HAS_GEMINI ? "gemini" : "claude");
+// Resolve the provider: honor LOCALIZE_MODEL only if that provider's key exists;
+// otherwise fall back to whichever key is actually present. This keeps
+// localization working even if LOCALIZE_MODEL points at a provider with no key.
+function resolveModel() {
+  const hasClaude = !!process.env.ANTHROPIC_API_KEY;
+  const hasGemini = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  const want = process.env.LOCALIZE_MODEL;
+  if (want === "gemini" && hasGemini) return "gemini";
+  if (want === "claude" && hasClaude) return "claude";
+  if (hasGemini) return "gemini";
+  if (hasClaude) return "claude";
+  return want || "claude";
+}
+const DEFAULT_MODEL = resolveModel();
 
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   console.error(`${req.method} ${req.path}:`, e.message);
