@@ -46,6 +46,14 @@ CREATE TABLE IF NOT EXISTS pages (
 -- Phase 3: trending signal. ALTER (not in CREATE) so re-running migrate adds it.
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS views INT NOT NULL DEFAULT 0;
 
+-- Localization Quality v1: persist source + measure edits.
+ALTER TABLE pages    ADD COLUMN IF NOT EXISTS original_path TEXT;          -- raw JP/KO page (for re-render)
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS total_bubbles  INT NOT NULL DEFAULT 0;
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS edited_bubbles INT NOT NULL DEFAULT 0;
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS retry_count    INT NOT NULL DEFAULT 0;
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS edit_bucket    TEXT;          -- post-publish self-report
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS felt_wrong     TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_series_creator   ON series(creator_id);
 CREATE INDEX IF NOT EXISTS idx_chapters_series  ON chapters(series_id);
 CREATE INDEX IF NOT EXISTS idx_chapters_state   ON chapters(status, review_status);

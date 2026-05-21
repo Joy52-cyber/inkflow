@@ -19,6 +19,7 @@ const USE_S3 = !!(
 export const STORAGE_DRIVER = USE_S3 ? "s3" : "local";
 
 const keyFor = (chapterId, idx) => `pages/uploads/${chapterId}/p${idx + 1}.png`;
+const origKeyFor = (chapterId, idx) => `pages/uploads/${chapterId}/orig_p${idx + 1}.png`;
 
 let _client = null;
 async function s3client() {
@@ -59,6 +60,36 @@ export async function putPage(chapterId, idx, buffer) {
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, buffer);
   return `/${key}`; // Vite serves /public at the web root
+}
+
+// Store the raw source page (kept so edits can re-render from the original art).
+export async function putOriginal(chapterId, idx, buffer) {
+  const key = origKeyFor(chapterId, idx);
+  if (USE_S3) {
+    const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+    const client = await s3client();
+    await client.send(new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key, Body: buffer, ContentType: "image/png" }));
+    return key;
+  }
+  const file = join(LOCAL_ROOT, chapterId, `orig_p${idx + 1}.png`);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, buffer);
+  return key;
+}
+
+// Read a stored source page back into a Buffer (for re-render).
+export async function getOriginal(chapterId, idx) {
+  const key = origKeyFor(chapterId, idx);
+  if (USE_S3) {
+    const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+    const client = await s3client();
+    const res = await client.send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }));
+    const chunks = [];
+    for await (const c of res.Body) chunks.push(c);
+    return Buffer.concat(chunks);
+  }
+  const { readFile } = await import("node:fs/promises");
+  return readFile(join(LOCAL_ROOT, chapterId, `orig_p${idx + 1}.png`));
 }
 
 // Remove all page images for a chapter.

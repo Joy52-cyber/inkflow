@@ -8,7 +8,7 @@ const ACCENTS = { cooking: "#f59e0b", action: "#06b6d4" };
 
 // Create series + chapter (draft/pending) + pages in one transaction.
 // `localizedPages` = [{ buffer-written already? no }] — caller writes images, passes paths.
-export async function createChapter({ creatorId, title, genre, chapterId, pagesData }) {
+export async function createChapter({ creatorId, title, genre, chapterId, pagesData, totalBubbles = 0 }) {
   const g = ACCENTS[genre] ? genre : "action";
   const client = await pool.connect();
   try {
@@ -21,14 +21,15 @@ export async function createChapter({ creatorId, title, genre, chapterId, pagesD
     ).rows[0];
     const chapter = (
       await client.query(
-        `INSERT INTO chapters (id, series_id, title, number) VALUES ($1,$2,$3,1) RETURNING id`,
-        [chapterId, series.id, title]
+        `INSERT INTO chapters (id, series_id, title, number, total_bubbles)
+         VALUES ($1,$2,$3,1,$4) RETURNING id`,
+        [chapterId, series.id, title, totalBubbles]
       )
     ).rows[0];
     for (const p of pagesData) {
       await client.query(
-        `INSERT INTO pages (chapter_id, idx, image_path, lines) VALUES ($1,$2,$3,$4)`,
-        [chapter.id, p.idx, p.image_path, JSON.stringify(p.lines)]
+        `INSERT INTO pages (chapter_id, idx, image_path, original_path, lines) VALUES ($1,$2,$3,$4,$5)`,
+        [chapter.id, p.idx, p.image_path, p.original_path || null, JSON.stringify(p.lines)]
       );
     }
     await client.query("COMMIT");
@@ -44,6 +45,7 @@ export async function createChapter({ creatorId, title, genre, chapterId, pagesD
 const CHAPTER_SELECT = `
   SELECT c.id, c.title, c.number, c.status, c.review_status, c.review_note,
          c.views, c.created_at, c.published_at,
+         c.total_bubbles, c.edited_bubbles, c.retry_count, c.edit_bucket,
          s.id AS series_id, s.title AS series_title, s.genre, s.accent,
          s.creator_id, cr.display_name AS creator_name,
          (cr.email LIKE '%@inkflow.demo') AS demo
@@ -54,7 +56,7 @@ const CHAPTER_SELECT = `
 async function withPages(chapter) {
   if (!chapter) return null;
   const { rows } = await query(
-    "SELECT idx, image_path AS src, lines FROM pages WHERE chapter_id=$1 ORDER BY idx",
+    "SELECT idx, image_path AS src, original_path, lines FROM pages WHERE chapter_id=$1 ORDER BY idx",
     [chapter.id]
   );
   return { ...chapter, pageCount: rows.length, pages: rows };
@@ -156,6 +158,43 @@ export async function search(q, limit = 40) {
 }
 
 // Public creator profile + their live works.
+// --- Localization Quality v1: ownership + edit persistence ---
+
+export async function isOwner(chapterId, creatorId) {
+  const row = await one(
+    `SELECT 1 FROM chapters c JOIN series s ON s.id=c.series_id
+     WHERE c.id=$1 AND s.creator_id=$2`,
+    [chapterId, creatorId]
+  );
+  return !!row;
+}
+
+export async function updatePageLines(chapterId, idx, lines) {
+  await query("UPDATE pages SET lines=$3 WHERE chapter_id=$1 AND idx=$2", [chapterId, idx, JSON.stringify(lines)]);
+}
+
+// Recompute edit metrics across all pages from the per-bubble flags.
+export async function recomputeMetrics(chapterId) {
+  const { rows } = await query("SELECT lines FROM pages WHERE chapter_id=$1", [chapterId]);
+  let total = 0, edited = 0, retries = 0;
+  for (const r of rows) {
+    for (const b of r.lines || []) {
+      total++;
+      if (b.edited) edited++;
+      retries += b.retries || 0;
+    }
+  }
+  await query(
+    "UPDATE chapters SET total_bubbles=$2, edited_bubbles=$3, retry_count=$4 WHERE id=$1",
+    [chapterId, total, edited, retries]
+  );
+  return { total, edited, retries, edit_rate: total ? edited / total : 0 };
+}
+
+export async function saveFeedback(chapterId, bucket, feltWrong = "") {
+  await query("UPDATE chapters SET edit_bucket=$2, felt_wrong=$3 WHERE id=$1", [chapterId, bucket, feltWrong]);
+}
+
 export async function getCreatorProfile(id) {
   const creator = await one(
     `SELECT id, display_name, created_at FROM creators WHERE id=$1`,

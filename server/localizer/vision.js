@@ -77,4 +77,29 @@ export async function localizePage(opts) {
   return opts.model === "claude" ? viaClaude(opts) : viaGemini(opts);
 }
 
+// Re-localize a single line (the reviewer's "Retry"). Text in, alternate text out.
+const RETRY_SYSTEM = `You are an official manga localization editor. Re-localize ONE line of dialogue into natural English.
+Priorities: preserve meaning, sound native (not literal), keep the character's tone, stay concise enough to fit a speech bubble.
+Return ONLY the localized line as plain text. No quotes, no notes, no alternatives.`;
+
+export async function retranslateLine({ model, original, guidance = "" }) {
+  const user = `Original line:\n${original}\n${guidance ? `\nEditor guidance: ${guidance}` : ""}\nGive a different, natural English localization.`;
+  if (model === "claude") {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) throw new Error("ANTHROPIC_API_KEY not set");
+    const anthropic = new Anthropic({ apiKey: key });
+    const res = await anthropic.messages.create({
+      model: CLAUDE_MODEL, max_tokens: 256, system: RETRY_SYSTEM,
+      messages: [{ role: "user", content: user }],
+    });
+    return res.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
+  }
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY (or GOOGLE_API_KEY) not set");
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const m = genAI.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: RETRY_SYSTEM });
+  const res = await m.generateContent(user);
+  return res.response.text().trim();
+}
+
 export { GEMINI_MODEL, CLAUDE_MODEL };

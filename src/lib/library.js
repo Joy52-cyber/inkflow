@@ -13,6 +13,14 @@ export const getChapter = (id) => api(`/chapters/${id}`);
 export const publishChapter = (id) => api(`/chapters/${id}/publish`, { method: "POST", auth: true });
 export const discardChapter = (id) => api(`/chapters/${id}`, { method: "DELETE", auth: true });
 
+// Reviewer (Localization Quality v1)
+export const retranslateBubble = (id, pageIdx, bubbleIdx, guidance) =>
+  api(`/chapters/${id}/retranslate`, { method: "POST", body: { pageIdx, bubbleIdx, guidance }, auth: true });
+export const reviseChapter = (id, pages) =>
+  api(`/chapters/${id}/revise`, { method: "POST", body: { pages }, auth: true });
+export const sendFeedback = (id, bucket, feltWrong) =>
+  api(`/chapters/${id}/feedback`, { method: "POST", body: { bucket, feltWrong }, auth: true });
+
 export const listLibrary = () => api("/library").catch(() => []);
 export const listMine = () => api("/mine", { auth: true });
 

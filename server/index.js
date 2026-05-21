@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { localizePage } from "./localizer/vision.js";
+import { localizePage, retranslateLine } from "./localizer/vision.js";
 import { renderPage } from "./localizer/render.js";
 import { registerCreator, loginCreator, requireAuth, requireAdmin } from "./auth.js";
 import * as lib from "./library.js";
@@ -80,24 +80,24 @@ app.post("/api/localize", requireAuth, upload.array("pages", 20), wrap(async (re
   const genre = req.body.genre === "cooking" ? "cooking" : "action";
   const model = req.body.model === "gemini" ? "gemini" : DEFAULT_MODEL;
 
-  // Localize all pages first (in memory), then persist + write files keyed by the new chapter id.
-  const rendered = [];
-  for (const f of files) {
+  const chapterId = randomUUID();
+  const pagesMeta = [];
+  let totalBubbles = 0;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
     const result = await localizePage({
       model, base64: f.buffer.toString("base64"), mimeType: f.mimetype,
       promptOpts: { targetLang: "en" },
     });
-    rendered.push({ png: await renderPage(f.buffer, result.regions), lines: result.regions });
+    // Annotate each bubble with the AI baseline so we can measure later edits.
+    const lines = result.regions.map((r) => ({ ...r, ai_translation: r.translation, edited: false, retries: 0 }));
+    totalBubbles += lines.length;
+    const png = await renderPage(f.buffer, result.regions);
+    const image_path = await storage.putPage(chapterId, i, png);
+    await storage.putOriginal(chapterId, i, f.buffer); // keep source for re-render
+    pagesMeta.push({ idx: i, image_path, original_path: `original:${chapterId}:${i}`, lines });
   }
-
-  // Generate the chapter id up front so page image paths are known before insert.
-  const chapterId = randomUUID();
-  const pagesMeta = [];
-  for (let i = 0; i < rendered.length; i++) {
-    const url = await storage.putPage(chapterId, i, rendered[i].png);
-    pagesMeta.push({ idx: i, image_path: url, lines: rendered[i].lines });
-  }
-  await lib.createChapter({ creatorId: req.creator.id, title, genre, chapterId, pagesData: pagesMeta });
+  await lib.createChapter({ creatorId: req.creator.id, title, genre, chapterId, pagesData: pagesMeta, totalBubbles });
 
   res.json(await lib.getChapter(chapterId));
 }));
@@ -120,6 +120,54 @@ app.delete("/api/chapters/:id", requireAuth, wrap(async (req, res) => {
   const ok = await lib.deleteChapter(req.params.id, req.creator.id);
   if (!ok) return res.status(404).json({ error: "not found or not yours" });
   await storage.deleteChapter(req.params.id);
+  res.json({ ok: true });
+}));
+
+// --- Reviewer: retranslate one bubble, save edits + re-render, post-publish feedback ---
+
+// "Retry" a single bubble: re-localize its source text into an alternate.
+app.post("/api/chapters/:id/retranslate", requireAuth, wrap(async (req, res) => {
+  if (!(await lib.isOwner(req.params.id, req.creator.id))) return res.status(404).json({ error: "not found or not yours" });
+  const { pageIdx, bubbleIdx, guidance } = req.body;
+  const ch = await lib.getChapter(req.params.id);
+  const page = ch.pages.find((p) => p.idx === pageIdx);
+  const bubble = page?.lines?.[bubbleIdx];
+  if (!bubble) return res.status(400).json({ error: "bubble not found" });
+  const model = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) && DEFAULT_MODEL !== "claude" ? "gemini" : DEFAULT_MODEL;
+  const alt = await retranslateLine({ model, original: bubble.original, guidance });
+  bubble.translation = alt;
+  bubble.retries = (bubble.retries || 0) + 1;
+  await lib.updatePageLines(req.params.id, pageIdx, page.lines);
+  await lib.recomputeMetrics(req.params.id);
+  res.json({ translation: alt });
+}));
+
+// Save edited translations and re-render the affected pages from the original art.
+app.post("/api/chapters/:id/revise", requireAuth, wrap(async (req, res) => {
+  if (!(await lib.isOwner(req.params.id, req.creator.id))) return res.status(404).json({ error: "not found or not yours" });
+  const ch = await lib.getChapter(req.params.id);
+  const edits = req.body.pages || []; // [{ idx, lines: [{ translation, edited }] }]
+  for (const e of edits) {
+    const page = ch.pages.find((p) => p.idx === e.idx);
+    if (!page) continue;
+    page.lines = page.lines.map((b, i) => {
+      const next = e.lines?.[i];
+      if (!next) return b; // preserve bbox/type/original/ai_translation/retries
+      return { ...b, translation: next.translation, edited: !!next.edited };
+    });
+    const original = await storage.getOriginal(req.params.id, e.idx);
+    const png = await renderPage(original, page.lines);
+    await storage.putPage(req.params.id, e.idx, png);
+    await lib.updatePageLines(req.params.id, e.idx, page.lines);
+  }
+  const metrics = await lib.recomputeMetrics(req.params.id);
+  res.json({ ...(await lib.getChapter(req.params.id)), metrics });
+}));
+
+// Post-publish: "how much did you edit?" + optional what-felt-wrong.
+app.post("/api/chapters/:id/feedback", requireAuth, wrap(async (req, res) => {
+  if (!(await lib.isOwner(req.params.id, req.creator.id))) return res.status(404).json({ error: "not found or not yours" });
+  await lib.saveFeedback(req.params.id, (req.body.bucket || "").slice(0, 16), (req.body.feltWrong || "").slice(0, 32));
   res.json({ ok: true });
 }));
 
